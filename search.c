@@ -1,6 +1,15 @@
 #include "Xstuff.h"
 #include "proto.h"
 
+void draw_redia(int expose,windowstuff *win)
+  {
+  redia_desc *rd=win->local->desc.redia;
+  xclear(rd->w);
+  if (rd->re && rd->len_re)
+    xstring(rd->w,BORDER,rd->fontinfo->ascent,
+            rd->re,rd->len_re);
+  }
+
 windowstuff *create_redia(windowstuff *main,XFontStruct *fontinfo,
                           int x,int y,int w,int l,
                           diffs *dfs)
@@ -8,7 +17,7 @@ windowstuff *create_redia(windowstuff *main,XFontStruct *fontinfo,
   windowstuff *rv;
   
   rv = openwindow(main,"Regexp",PPosition,x,y,w,l,-1,0,
-                  ExposureMask|StructureNotifyMask);
+                  ExposureMask|StructureNotifyMask,draw_redia);
   XSetFont(rv->display,rv->gc,fontinfo->fid);
   assoc_win(rv);
   rv->local = newitem(local_type,1);
@@ -24,7 +33,7 @@ windowstuff *create_redia(windowstuff *main,XFontStruct *fontinfo,
   rv->local->desc.redia->start[1]=0;
   rv->local->desc.redia->cur[0]=0;
   rv->local->desc.redia->cur[1]=0;  
-  draw_redia(0,rv->local->desc.redia);
+  draw_redia(0,rv);
   return(rv);
   }
 
@@ -42,7 +51,7 @@ void add_text_redia(windowstuff *redia,int nc,char *text)
   
   strcpy(rd->re+rd->len_re,text);
   rd->len_re = len;
-  draw_redia(0,rd);
+  draw_redia(0,redia);
   }
 
 void backspace_redia(windowstuff *redia)
@@ -51,7 +60,7 @@ void backspace_redia(windowstuff *redia)
   if (rd->len_re==0) return;
   rd->len_re--;
   rd->re[rd->len_re]=0;
-  draw_redia(0,rd);
+  draw_redia(0,redia);
   }
 
 void reset_redia(windowstuff *redia)
@@ -60,7 +69,7 @@ void reset_redia(windowstuff *redia)
 
   rd->len_re=0;
   rd->re[rd->len_re]=0;
-  draw_redia(0,rd);
+  draw_redia(0,redia);
   }
 
 int get_num_matches(int32_t nind)
@@ -228,24 +237,16 @@ void search_re(windowstuff *redia,windowstuff *map,
   pcre2_match_data_free(md);
   pcre2_code_free(rec);
 
-  draw_map(1,map->local->desc.map);
-  draw_xover(1,xover->local->desc.xover);
+  draw_map(1,map);
+  draw_xover(1,xover);
 
   for (int s=0;s<2;s++)
     {
     pane[s]->local->desc.pane->matches = rd->matches;
-    draw_pane(1,pane[s]->local->desc.pane);
+    draw_pane(1,pane[s]);
     }
   }
 
-
-void draw_redia(int expose,redia_desc *rd)
-  {
-  xclear(rd->w);
-  if (rd->re && rd->len_re)
-    xstring(rd->w,BORDER,rd->fontinfo->ascent,
-            rd->re,rd->len_re);
-  }
 
 void destroy_redia(windowstuff **rv)
   {

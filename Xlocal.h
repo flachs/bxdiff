@@ -12,6 +12,9 @@
 
 #include <pcre2.h>
 
+#define FunnyMode GXxor
+#define xistring(w,x,y,s,l) XDrawImageString((w)->display,(w)->window,(w)->gc,(int)(x),(int)(y),s,(int)(l))
+
 typedef struct
   {
   char *name;

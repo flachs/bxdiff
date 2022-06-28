@@ -15,7 +15,11 @@
 
 #define GRAY_LEVELS 64
 
-typedef struct
+struct windowstuff;
+
+typedef void (*draw_routine_t)(int expose,struct windowstuff *w);
+
+typedef struct windowstuff
   {
   char DisplayName[256];
   Display *display;
@@ -28,6 +32,7 @@ typedef struct
   int background,foreground;
   Window  window;
   GC gc;
+  draw_routine_t draw;
   XEvent event;
   KeySym  key;
   XSizeHints hint;
@@ -51,10 +56,11 @@ windowstuff *openroot(char *name);
 void closeroot();
 windowstuff *openwindow(windowstuff *root,char *name,int hints,
                         int x,int y,int w,int h,
-                        int b,int s,int evmsk);
+                        int b,int s,int evmsk,draw_routine_t draw);
 windowstuff *openwindow_pm(windowstuff *root,char *name,int hints,
-                        int x,int y,int w,int h,
-                        int b,int s,int evmsk,Pixmap pm);
+                           int x,int y,int w,int h,
+                           int b,int s,int evmsk,draw_routine_t draw,
+                           Pixmap pm);
 void closewindow(windowstuff *rv);
 void ParseOptions(int *argc,char **argv,optionsdatabase *odb);
 

@@ -2,14 +2,17 @@
 #include "proto.h"
 #include <sys/mman.h>
 
-#define FunnyMode GXxor
-#define xistring(w,x,y,s,l) XDrawImageString((w)->display,(w)->window,(w)->gc,(int)(x),(int)(y),s,(int)(l))
-
 static inline char *cpystring(char *b,const char *p)
   {
   while ( *b++=*p++ );
   return b-1;
   }
+
+static inline void draw_object(int expose,windowstuff *eventwind)
+  {
+  eventwind->draw(expose,eventwind);
+  }
+
 
 void popitup(diffs *dfs)
   {
@@ -298,7 +301,8 @@ void popitup(diffs *dfs)
   closeroot(rw);
   }
 
-void motion_sync(windowstuff *map,windowstuff *xover,windowstuff **pane,int numlines)
+void motion_sync(windowstuff *map,windowstuff *xover,
+                 windowstuff **pane,int numlines)
   {
   draw_object(0,map);
   xover->local->desc.xover->cur[0]=map->local->desc.map->cur[0];
@@ -474,15 +478,6 @@ int movedown(windowstuff *mapw,int resrch)
   return(0);
   }
 
-void destroy_xover(windowstuff **rv)
-  {
-  disassoc_win((*rv));
-  free((*rv)->local->desc.xover);
-  free((*rv)->local);
-  closewindow(*rv);
-  *rv = NULL;
-  }
-
 void draw_arrow(windowstuff *w,int x,int y,int dir)
   {
   static XPoint points[3]={ 0,0, 4,-3, 0,6 };
@@ -500,114 +495,6 @@ void draw_marker(windowstuff *w,int x,int y,int dir)
   {
   XDrawLine(w->display,w->window,w->gc,
             x,y,x+dir*4,y);
-  }
-
-void draw_xover(int expose,xover_desc *xover)
-  {
-  XPoint points[9];
-  int i,w,h;
-  int a1,a2,a3,a4;
-  int wh;
-  
-  xclear(xover->w);
-  w = xover->w->hint.width;
-  wh = xover->w->hint.height;
-  
-  h = xover->h;
-  
-  for (i=0;i<xover->dif->diffs;i++)
-    {
-    a1=(xover->dif->diff[i].fs[0]-xover->start[0])*h;
-    a2=(xover->dif->diff[i].fs[1]-xover->start[1])*h;
-    a3=(xover->dif->diff[i].fe[1]-xover->start[1])*h;
-    a4=(xover->dif->diff[i].fe[0]-xover->start[0])*h;
-
-    if (a1<0 && a2<0 && a3<0 && a4<0) continue;
-    if (a1>wh && a2>wh && a3>wh && a4>wh) continue;
-
-    if (a1<0) a1=0;
-    if (a2<0) a2=0;
-    if (a3<0) a3=0;
-    if (a4<0) a4=0;
-
-    if (a1>wh) a1=wh;
-    if (a2>wh) a2=wh;
-    if (a3>wh) a3=wh;
-    if (a4>wh) a4=wh;
-
-    points[0].x = 0;
-    points[0].y = a1; 
-    points[1].x = w;
-    points[1].y = a2;
-    points[2].x = w;
-    points[2].y = a3;
-    points[3].x = 0;
-    points[3].y = a4;
-    points[4].x = 0;
-    points[4].y = points[0].y;
-
-    XFillPolygon(xover->w->display,xover->w->window,xover->w->gc,
-                 points,5,Nonconvex,CoordModeOrigin);
-    XDrawLines(xover->w->display,xover->w->window,xover->w->gc,
-                 points,5,CoordModeOrigin);
-    
-    }
-
-  XSetFunction(xover->w->display,xover->w->gc,FunnyMode);
-  XSetForeground(xover->w->display,xover->w->gc,
-                 xover->w->foreground|xover->w->background);
-  
-  for (int s=0;s<2;s++)
-    {
-    int x = s ? w-1 : 1;
-    int d = s ? -1 : 1;
-    
-    for (i=0;i<xover->dif->file[s].lines;i++)
-      if (xover->dif->file[s].matches[i])
-        {
-        int y = h*(i-xover->start[s])+h/2;
-        if (y>=0 && y<=wh)
-          draw_marker(xover->w,x,y,d);
-        }
-    }
-  
-
-  draw_arrow(xover->w,1,(xover->cur[0]-xover->start[0])*h+h/2,1);
-  draw_arrow(xover->w,w-1,(xover->cur[1]-xover->start[1])*h+h/2,-1);
-  pencolor(xover->w,1);
-  XSetFunction(xover->w->display,xover->w->gc,GXcopy);
-  }
-
-windowstuff *create_xover(windowstuff *main,int x,int y,int w,int l,
-                          diffs *dfs,int fh)
-  {
-  windowstuff *rv;
-  
-  rv = openwindow(main,"Map",PPosition,x,y,w,l,-1,0,
-                  ExposureMask|StructureNotifyMask);
-  assoc_win(rv);
-  rv->local = newitem(local_type,1);
-  rv->local->object = XOVER;
-  rv->local->desc.xover = newitem(xover_desc,1);
-  rv->local->desc.xover->w = rv;
-  rv->local->desc.xover->dif = dfs;
-  rv->local->desc.xover->start[0]=0;
-  rv->local->desc.xover->start[1]=0;
-  rv->local->desc.xover->cur[0]=0;
-  rv->local->desc.xover->cur[1]=0;
-  rv->local->desc.xover->h=fh;
-  
-  draw_xover(0,rv->local->desc.xover);
-  return(rv);
-  }
-
-void destroy_map(windowstuff **rv)
-  {
-  disassoc_win((*rv));
-  free((*rv)->local->desc.map);
-  free((*rv)->local);
-  closewindow(*rv);
-  *rv = NULL;
   }
 
 void gotomouse(windowstuff *w,int x,int y)
@@ -651,106 +538,6 @@ void gotomouse(windowstuff *w,int x,int y)
     srch = map->dif->dr0[map->cur[0]] & map->dif->dr1[map->cur[1]];
   }
 
-void draw_map(int expose,map_desc *map)
-  {
-  XPoint points[9];
-  int s,i,m,h;
-
-  m = max(map->dif->file[0].lines,map->dif->file[1].lines);
-  h = map->w->hint.height;
-  
-  if (expose)
-    {
-    xclear(map->w);
-
-    for (i=0;i<map->dif->diffs;i++)
-      {
-      points[0].x = BORDER;
-      points[0].y = h*map->dif->diff[i].fs[0]/m;
-      points[1].x = MAPWID/3;
-      points[1].y = h*map->dif->diff[i].fs[0]/m;
-      points[2].x = 2*MAPWID/3;
-      points[2].y = h*map->dif->diff[i].fs[1]/m;
-      points[3].x = MAPWID-BORDER;
-      points[3].y = h*map->dif->diff[i].fs[1]/m;
-      points[4].x = MAPWID-BORDER;
-      points[4].y = h*map->dif->diff[i].fe[1]/m;
-      points[5].x = 2*MAPWID/3;
-      points[5].y = h*map->dif->diff[i].fe[1]/m;
-      points[6].x = MAPWID/3;
-      points[6].y = h*map->dif->diff[i].fe[0]/m;
-      points[7].x = BORDER;
-      points[7].y = h*map->dif->diff[i].fe[0]/m;
-      points[8].x = BORDER;
-      points[8].y = h*map->dif->diff[i].fs[0]/m;
-    
-      XFillPolygon(map->w->display,map->w->window,map->w->gc,
-                   points,9,Nonconvex,CoordModeOrigin);
-      XDrawLines(map->w->display,map->w->window,map->w->gc,
-                 points,9,CoordModeOrigin);
-    
-      }
-    for (s=0;s<2;s++)
-      {
-      int x = s ? MAPWID-BORDER : BORDER;
-      int d = s ? 1 : -1;
-      
-      for (i=0;i<map->dif->file[s].lines;i++)
-        if (map->dif->file[s].matches[i])
-          draw_marker(map->w,x,h*i/m,d);
-      }
-    }
-  else if (map->pcur[0]>=0)
-    {
-    XSetFunction(map->w->display,map->w->gc,FunnyMode);
-    XSetForeground(map->w->display,map->w->gc,map->w->foreground|map->w->background);
-    draw_arrow(map->w,BORDER,h*map->pcur[0]/m,-1);
-    draw_arrow(map->w,MAPWID-BORDER,h*map->pcur[1]/m,1);
-    pencolor(map->w,1);
-    XSetFunction(map->w->display,map->w->gc,GXcopy);
-    }
-  
-  XSetFunction(map->w->display,map->w->gc,FunnyMode);
-  XSetForeground(map->w->display,map->w->gc,map->w->foreground|map->w->background);
-  draw_arrow(map->w,BORDER,h*map->cur[0]/m,-1);
-  draw_arrow(map->w,MAPWID-BORDER,h*map->cur[1]/m,1);
-  pencolor(map->w,1);
-  XSetFunction(map->w->display,map->w->gc,GXcopy);
-  map->pcur[0]=map->cur[0];
-  map->pcur[1]=map->cur[1];
-  }
-
-windowstuff *create_map(windowstuff *main,int x,int y,int w,int l,diffs *dfs)
-  {
-  windowstuff *rv;
-  
-  rv = openwindow(main,"Map",PPosition,x,y,w,l,-1,0,
-                  ExposureMask|StructureNotifyMask| ButtonPressMask |
-                  Button1MotionMask | PointerMotionHintMask | ButtonReleaseMask );
-  assoc_win(rv);
-  rv->local = newitem(local_type,1);
-  rv->local->object = MAP;
-  rv->local->desc.map = newitem(map_desc,1);
-  rv->local->desc.map->w = rv;
-  rv->local->desc.map->dif = dfs;
-  rv->local->desc.map->cur[0]=0;
-  rv->local->desc.map->cur[1]=0;
-  rv->local->desc.map->pcur[0]= -1;
-  rv->local->desc.map->pcur[1]= -1;
-  draw_map(0,rv->local->desc.map);
-  return(rv);
-  }
-
-
-void destroy_pane(windowstuff **rv)
-  {
-  disassoc_win((*rv));
-  free((*rv)->local->desc.pane);
-  free((*rv)->local);
-  closewindow(*rv);
-  *rv = NULL;
-  }
-
 char *rendertabs(char *in,int inl,char *out,int ml,int *rl)
   {
   int xc=0,tc=0;
@@ -790,236 +577,6 @@ char *rendertabs(char *in,int inl,char *out,int ml,int *rl)
   if (rl) *rl=q-out;
   return out;
   }
-
-void draw_pane(int expose,pane_desc *pd)
-  {
-  int height = (pd->fontinfo->ascent+pd->fontinfo->descent);
-  int fl = pd->w->hint.height/height;
-  int width = (pd->fontinfo->min_bounds.width);
-  int fw = pd->w->hint.width/(width ? width : 1);
-  char **line = pd->dif->file[pd->side].line;
-  int32_t *matches = pd->dif->file[pd->side].matches;
-  int l=pd->dif->file[pd->side].lines;
-  if (expose) pd->pstartline= -1;
-
-  int rm = pd->startline-pd->pstartline;
-  
-  if (rm == 0) return;
-
-  int start,end;
-  if (fl-rm>0 && rm>0 && pd->pstartline>=0)
-    {
-    XCopyArea(pd->w->display,pd->w->window,pd->w->window,pd->w->gc,
-              0,rm*height,
-              pd->w->hint.width,(fl-rm)*height,
-              0,0);
-    XClearArea(pd->w->display,pd->w->window,
-               0,(fl-rm)*height,
-               pd->w->hint.width,rm*height,
-               False);
-    start=fl-rm;
-    end=fl;
-    }
-  else if (fl+rm>0 && rm<0 && pd->pstartline>=0)
-    {
-    XCopyArea(pd->w->display,pd->w->window,pd->w->window,pd->w->gc,
-              0,0,
-              pd->w->hint.width,(fl+rm)*height,
-              0,-rm*height);
-    XClearArea(pd->w->display,pd->w->window,
-               0,0,
-               pd->w->hint.width,-rm*height,
-               False);
-    start=0;
-    end= -rm;
-    }
-  else
-    {
-    xclear(pd->w);
-    start=0;
-    end=fl;
-    }
-  
-  pd->pstartline=pd->startline;
-  for (int i=start;i<end;i++)
-    {
-    int inpane = i+pd->startline<l && i+pd->startline>=0 ;
-    char *theline = inpane ? line[i+pd->startline] : "~";
-    char *eol = inpane ? line[i+pd->startline+1]-1 : theline+1;
-
-    int b=0;
-    int ia=0;
-    for (int j=0;j<pd->dif->diffs;j++)
-      {
-      b |= pd->dif->diff[j].fs[pd->side]<=i+pd->startline
-           && pd->dif->diff[j].fe[pd->side]>i+pd->startline ;
-      ia |= pd->dif->diff[j].fs[pd->side]<=i+pd->startline
-            && pd->dif->diff[j].fe[pd->side]==i+pd->startline ;
-      }
-
-    int ll = eol-theline;
-    if (eol>theline)
-      {
-      char buffer[fw+1];
-      int sl;
-      char *s = rendertabs(theline,eol-theline,buffer,fw,&sl);
-      xistring(pd->w,INDENT,i*height+pd->fontinfo->ascent, s ,sl);
-      
-      int32_t match = inpane ? matches[i+pd->startline] : 0;
-      int nm = get_num_matches(match);
-      if (nm)
-        {
-        XSetFunction(pd->w->display,pd->w->gc,FunnyMode);
-        XSetForeground(pd->w->display,pd->w->gc,
-                       pd->w->foreground|pd->w->background);
-        
-        for (int m=0;m<nm;m++)
-          {
-          int32_t msted = get_match(match,pd->matches,m);
-          int beg = msted>>16;
-          int end = msted&0xffff;
-
-          int direction_return,font_ascent_return,font_descent_return;
-          XCharStruct pre_return;
-          XTextExtents(pd->fontinfo, s, beg,
-                       &direction_return,&font_ascent_return,
-                       &font_descent_return, &pre_return);
-          int xstart = pre_return.width;
-          
-          XCharStruct post_return;
-          XTextExtents(pd->fontinfo, s, end,
-                       &direction_return,&font_ascent_return,
-                       &font_descent_return, &post_return);
-          int xwidth = post_return.width - xstart;
-
-          XFillRectangle(pd->w->display,pd->w->window,pd->w->gc,
-                         INDENT-1+xstart,i*height,
-                         xwidth+1,height);
-          }
-        
-        pencolor(pd->w,1);
-        XSetFunction(pd->w->display,pd->w->gc,GXcopy);
-        }
-      }
-    
-    if (b)
-      {
-      XSetFunction(pd->w->display,pd->w->gc,FunnyMode);
-      XSetForeground(pd->w->display,pd->w->gc,pd->w->foreground|pd->w->background);
-      XFillRectangle(pd->w->display,pd->w->window,pd->w->gc,0,i*height,
-                     pd->w->hint.width,height);
-      pencolor(pd->w,1);
-      XSetFunction(pd->w->display,pd->w->gc,GXcopy);
-      }
-
-    if (ia)
-      {
-      XSetFunction(pd->w->display,pd->w->gc,FunnyMode);
-      XSetForeground(pd->w->display,pd->w->gc,pd->w->foreground|pd->w->background);
-      XDrawLine(pd->w->display,pd->w->window,pd->w->gc,0,i*height,
-                     pd->w->hint.width,i*height);
-      pencolor(pd->w,1);
-      XSetFunction(pd->w->display,pd->w->gc,GXcopy);
-      }
-    }
-  }
-
-windowstuff *create_pane(windowstuff *main,int x,int y,int w,int l,
-                         int id,diffs *dfs,XFontStruct *fontinfo)
-  {
-  windowstuff *rv;
-  
-  rv = openwindow(main,"Text Pane",PPosition,x,y,w,l,-1,0,
-                  ExposureMask|StructureNotifyMask);
-  assoc_win(rv);
-  rv->local = newitem(local_type,1);
-  rv->local->object = PANE;
-  rv->local->desc.pane = newitem(pane_desc,1);
-  rv->local->desc.pane->w = rv;
-  rv->local->desc.pane->fontinfo = fontinfo;
-  rv->local->desc.pane->side = id;
-  rv->local->desc.pane->dif = dfs;
-  rv->local->desc.pane->startline=0;
-  rv->local->desc.pane->pstartline= -1;
-  XSetFont(rv->display,rv->gc,fontinfo->fid);
-  draw_pane(0,rv->local->desc.pane);
-  return(rv);
-  }
-
-
-
-void draw_main(int expose,main_desc *md)
-  {
-  xclear(md->w);
-  xstring(md->w,md->panex[0],
-          BORDER+md->fontinfo->ascent,md->name[0],
-          strlen(md->name[0]));
-  xstring(md->w,md->panex[1],
-          BORDER+md->fontinfo->ascent,md->name[1],
-          strlen(md->name[1]));
-  }
-
-windowstuff *create_main(windowstuff *rw,int width,int height,
-                         XFontStruct *fontinfo,
-                         char *name1,char *name2,
-                         int pane1x,int pane2x)
-  {
-  windowstuff *rv;
-  char winname[LINELEN];
-
-  sprintf(winname,"bxdiff: %s vs. %s",name1,name2);
-
-  rv = openwindow(rw,winname,PPosition,0,0,
-                 width,height,1,0,
-                 ExposureMask | KeyPressMask | 
-                 StructureNotifyMask );
-  assoc_win(rv);
-  rv->local = newitem(local_type,1);
-  rv->local->object = MAIN;
-  rv->local->desc.main = newitem(main_desc,1);
-  rv->local->desc.main->w = rv;
-  rv->local->desc.main->fontinfo = fontinfo;
-  rv->local->desc.main->name[0]=name1;
-  rv->local->desc.main->name[1]=name2;
-  rv->local->desc.main->panex[0]=pane1x;
-  rv->local->desc.main->panex[1]=pane2x;
-  
-  XSetFont(rv->display,rv->gc,fontinfo->fid);
-  draw_main(0,rv->local->desc.main);
-  return(rv);
-  }
-
-void destroy_main(windowstuff **rv)
-  {
-  disassoc_win((*rv));
-  free((*rv)->local->desc.main);
-  free((*rv)->local);
-  closewindow(*rv);
-  *rv = NULL;
-  }
-
-void draw_object(int expose,windowstuff *eventwind)
-  {
-  switch (eventwind->local->object)
-    {
-    case MAIN: 
-      draw_main(expose,eventwind->local->desc.main);
-      break;
-    case PANE:
-      draw_pane(expose,eventwind->local->desc.pane);
-      break;
-    case MAP:
-      draw_map(expose,eventwind->local->desc.map);
-      break;
-    case XOVER :
-      draw_xover(expose,eventwind->local->desc.xover);
-      break;
-    case REDIA :
-      draw_redia(expose,eventwind->local->desc.redia);
-      break;
-    }
-  }
-
 
 void printdiffs(diffs *dfs)
   {

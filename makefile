@@ -14,20 +14,20 @@ endif
 
 
 CFLAGS = -g $(INCLUDE) -L/usr/X11R6/lib
+OFILES = bxdiff.o search.o xover.o map.o pane.o main.o
+CFILES = $(OFILES:.o=.c)
 
 all: nproto.h bxdiff 
 
-nproto.h: bxdiff.c search.c
+nproto.h: $(CFILES)
 	if [ ! -f proto.h ]; then touch proto.h; fi
 	cproto $(INCLUDE) -e $^ > nproto.h
 	cmp -s nproto.h proto.h || cp nproto.h proto.h
 
-search.o: search.c Xlocal.h proto.h
+%.o: %.c Xlocal.h proto.h
 
-bxdiff.o: bxdiff.c Xlocal.h proto.h
-
-bxdiff: bxdiff.o Xlocal.h search.o $(LIBO)
-	gcc $(CFLAGS) $(INCLUDE) -o bxdiff bxdiff.o search.o $(COMODIR)/Xroutines.o -lX11 -lpcre2-8
+bxdiff: $(OFILES) Xlocal.h $(LIBO)
+	gcc $(CFLAGS) $(INCLUDE) -o bxdiff $(OFILES) $(COMODIR)/Xroutines.o -lX11 -lpcre2-8
 
 $(COMODIR)/Xroutines.o: $(LIBS)/Xroutines.c
 	mkdir -p $(COMODIR)

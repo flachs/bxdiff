@@ -46,8 +46,9 @@ void closeroot()
   }
 
 windowstuff *openwindow_pm(windowstuff *root,char *name,int hints,
-                        int x,int y,int w,int h,
-                        int b,int s,int evmsk,Pixmap pm)
+                           int x,int y,int w,int h,
+                           int b,int s,int evmsk,
+                           draw_routine_t draw,Pixmap pm)
   {
   if (root==NULL) root = openroot("");
 
@@ -67,7 +68,7 @@ windowstuff *openwindow_pm(windowstuff *root,char *name,int hints,
     }
   
   /* default program-specified window position and size */
-
+  rv->draw = draw;
   rv->hint.x = x;
   rv->hint.y = y;
   rv->hint.width  = w; 
@@ -105,9 +106,9 @@ windowstuff *openwindow_pm(windowstuff *root,char *name,int hints,
 
 windowstuff *openwindow(windowstuff *root,char *name,int hints,
                         int x,int y,int w,int h,
-                        int b,int s,int evmsk)
+                        int b,int s,int evmsk,draw_routine_t draw)
   {
-  return(openwindow_pm(root,name,hints,x,y,w,h,b,s,evmsk,None));
+  return(openwindow_pm(root,name,hints,x,y,w,h,b,s,evmsk,draw,None));
   }
 
 void closewindow(windowstuff *rv)
