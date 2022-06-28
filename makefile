@@ -34,4 +34,4 @@ $(COMODIR)/Xroutines.o: $(LIBS)/Xroutines.c
 	gcc -c $(CFLAGS) $(INCLUDE) -o $@ $<
 
 clean:
-	rm -f bxdiff *.o $(LIBO)
+	rm -f bxdiff *.o $(LIBO) nproto.h proto.h
