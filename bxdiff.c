@@ -1,24 +1,24 @@
 #include "Xstuff.h"
 #include "proto.h"
+#include <sys/mman.h>
 
 #define FunnyMode GXxor
 #define xistring(w,x,y,s,l) XDrawImageString((w)->display,(w)->window,(w)->gc,(int)(x),(int)(y),s,(int)(l))
 
+static inline char *cpystring(char *b,const char *p)
+  {
+  while ( *b++=*p++ );
+  return b-1;
+  }
+
 void popitup(diffs *dfs)
   {
-  windowstuff *rw,*main,*eventwind,*pane[2],*map,*xover;
-  char text[10];
-  KeySym  mykey;
-  XFontStruct *fontinfo;
-  int numlines,panew[2],panelen,panex[2];
-  int done;
-  int i;
   int r_x,r_y,p_x,p_y;
   unsigned int k_b;
   Window rwind,rchild;
   
   /* establish root connection */
-  rw = openroot(NULL);
+  windowstuff *rw = openroot(NULL);
 
   if (!rw)
     {
@@ -27,7 +27,7 @@ void popitup(diffs *dfs)
     }
 
   /* figure out font stuff */
-  fontinfo = XLoadQueryFont(rw->display,"6x10");
+  XFontStruct *fontinfo = XLoadQueryFont(rw->display,"6x10");
   if (! fontinfo)
     {
     fprintf(stderr,"bxdiff: cant load font %s\n","6x10");
@@ -38,45 +38,52 @@ void popitup(diffs *dfs)
   if (dfs->file[0].width>MAXPANEWID) dfs->file[0].width=MAXPANEWID;
   if (dfs->file[1].width>MAXPANEWID) dfs->file[1].width=MAXPANEWID;
 
-  numlines = min(max(dfs->file[0].lines,dfs->file[1].lines),80);
+  int numlines = min(max(dfs->file[0].lines,dfs->file[1].lines),80);
 
+  int panew[2],panex[2];
   panex[0] = BORDER;
   panew[0] = dfs->file[0].width*fontinfo->max_bounds.width+2*INDENT;
   panex[1] = panex[0]+panew[0]+XOVERWID;
   panew[1] = dfs->file[1].width*fontinfo->max_bounds.width+2*INDENT;
 
-  panelen = numlines*(fontinfo->ascent+fontinfo->descent);
+  int panelen = numlines*(fontinfo->ascent+fontinfo->descent);
   
-  main = create_main(rw,3*BORDER+panew[0]+panew[1]+XOVERWID+MAPWID,
-                     2*BORDER+panelen+fontinfo->ascent+fontinfo->descent,
-                     fontinfo,
-                     dfs->file[0].name,dfs->file[1].name,
-                     panex[0],panex[1]);
+  windowstuff *main = create_main(rw,
+                          3*BORDER+panew[0]+panew[1]+XOVERWID+MAPWID,
+                          2*BORDER+panelen+fontinfo->ascent+fontinfo->descent,
+                          fontinfo,
+                          dfs->file[0].name,dfs->file[1].name,
+                          panex[0],panex[1]);
 
   /* create text panes */
-  for (i=0;i<2;i++)
+  windowstuff *pane[2];
+  for (int i=0;i<2;i++)
     {
-    pane[i] = create_pane(main,panex[i],fontinfo->ascent+fontinfo->descent+BORDER,
+    pane[i] = create_pane(main,panex[i],
+                          fontinfo->ascent+fontinfo->descent+BORDER,
                           panew[i],panelen,i,dfs,fontinfo);
     }
 
   /* create map */
-  map = create_map(main,panex[1]+panew[1]+BORDER,
-                   fontinfo->ascent+fontinfo->descent+BORDER,
-                   MAPWID,panelen,dfs);
+  windowstuff *map = create_map(main,panex[1]+panew[1]+BORDER,
+                                fontinfo->ascent+fontinfo->descent+BORDER,
+                                MAPWID,panelen,dfs);
 
   /* create xover */
-  xover = create_xover(main,panex[0]+panew[0]+BORDER,
-                       fontinfo->ascent+fontinfo->descent+BORDER,
-                       panex[1]-BORDER-(panex[0]+panew[0]+BORDER),
-                       panelen,dfs,
-                       fontinfo->ascent+fontinfo->descent);
+  windowstuff *xover = create_xover(main,panex[0]+panew[0]+BORDER,
+                                    fontinfo->ascent+fontinfo->descent+BORDER,
+                                    panex[1]-BORDER-(panex[0]+panew[0]+BORDER),
+                                    panelen,dfs,
+                                    fontinfo->ascent+fontinfo->descent);
 
   /* finally the event loop */
+  int reentrymode=0;
+  int done;
+  windowstuff *redia = 0;
   for (done=0; !done ; )
     {
     XNextEvent(main->display,&main->event);
-    eventwind = find_win(main->event.xexpose.window) ;
+    windowstuff *eventwind = find_win(main->event.xexpose.window) ;
     if (! eventwind) continue;
     eventwind->event = main->event;
     switch (main->event.type)
@@ -118,7 +125,7 @@ void popitup(diffs *dfs)
         break;
       case MotionNotify:
         while (XCheckMaskEvent(eventwind->display,PointerMotionMask,
-               &eventwind->event));
+                               &eventwind->event));
       case ButtonPress:
       case ButtonRelease:
         if (!XQueryPointer(eventwind->display,eventwind->event.xmotion.window,
@@ -129,56 +136,162 @@ void popitup(diffs *dfs)
         gotomouse(eventwind,p_x,p_y);
         motion_sync(map,xover,pane,numlines);
         break;
-      case KeyPress:
-        i = XLookupString((XKeyEvent *)&main->event, text, 10, &mykey, 0);
-        if (i==1)
-          {
-          switch (text[0])
+      case KeyPress:;
+        char text[100];
+        KeySym  mykey;
+        int nc = XLookupString((XKeyEvent *)&main->event, 
+                               text, sizeof(text), &mykey, 0);
+        if (nc==0)
+          {// not a character key mykey=X11/keysymdef.h
+          text[0]=0;
+          if (0) printf("button %x\n",mykey);
+          if (reentrymode)
             {
-            case 'q': /* quit */
-              done=1;
-              break;
-            case 'g': /* to the top */
-              gototop(map);
-              motion_sync(map,xover,pane,numlines);
-              break;
-            case 'G': /* down */
-              gotobot(map);
-              motion_sync(map,xover,pane,numlines);
-              break;
-            case 'j': /* down */
-              movedown(map);
-              motion_sync(map,xover,pane,numlines);
-              break;
-            case ' ': /* page down */
-              for (i=0;i<numlines/2;i++) movedown(map);
-              motion_sync(map,xover,pane,numlines);
-              break;
-            case 'k': /* up */
-              moveup(map);
-              motion_sync(map,xover,pane,numlines);
-              break;
-            case 'b': /* page up */
-              for (i=0;i<numlines/2;i++) moveup(map);
-              motion_sync(map,xover,pane,numlines);
-              break;
-            case 'n': /* find next diff */
-              while (movedown(map)) ;
-              motion_sync(map,xover,pane,numlines);
-              break;
-            case 'p': /* find pref diff */
-              while (moveup(map)) ;
-              motion_sync(map,xover,pane,numlines);
-              break;
+            }
+          else
+            {
+            switch (mykey)
+              {
+              case XK_Right: /* find next match */
+                if (redia)
+                  {
+                  while (movedown(map,1)) ;
+                  motion_sync(map,xover,pane,numlines);
+                  }
+                break;
+              case XK_Left: /* find pref match */
+                if (redia)
+                  {
+                  while (moveup(map,1)) ;
+                  motion_sync(map,xover,pane,numlines);
+                  }
+                break;
+              case XK_Home:
+                gototop(map);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case XK_End:
+                gotobot(map);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case XK_Down:
+                movedown(map,0);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case XK_Up:
+                moveup(map,0);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case XK_Page_Up:
+                for (int i=0;i<numlines/2;i++) moveup(map,0);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case XK_Page_Down:
+                for (int i=0;i<numlines/2;i++) movedown(map,0);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              }
+            }
+          }
+        else
+          {
+          if (0) printf("nc %d %x\n",nc,text[0]);
+          if (reentrymode)
+            {
+            switch (text[0])
+              {
+              case 0: break;
+              case 0xd: // cr \r
+                reentrymode=0;
+                search_re(redia,map,xover,pane);
+                break;
+              case 0x8: // bs \b
+                backspace_redia(redia);
+                break;
+              default:
+                add_text_redia(redia,nc,text);
+              }
+            
+            if (0) printf("key %x\n",text[0]);
+            }
+          else
+            { // motion mode
+            if (0) printf("KEY %x\n",text[0]);
+            switch (text[0])
+              {
+              case 'q': /* quit */
+                done=1;
+                break;
+              case 'g': /* to the top */
+                gototop(map);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case 'G': /* down */
+                gotobot(map);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case 'j': /* down */
+                movedown(map,0);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case ' ': /* page down */
+                for (int i=0;i<numlines/2;i++) movedown(map,0);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case 'k': /* up */
+                moveup(map,0);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case 'b': /* page up */
+                for (int i=0;i<numlines/2;i++) moveup(map,0);
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case 'n': /* find next diff */
+                while (movedown(map,0)) ;
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case 'p': /* find pref diff */
+                while (moveup(map,0)) ;
+                motion_sync(map,xover,pane,numlines);
+                break;
+              case '/': /* regexp find */
+                reentrymode=1;
+                if (redia)
+                  reset_redia(redia);
+                else
+                  redia = create_redia(main,fontinfo,
+                                       panex[0]+panew[0]/2,
+                                       BORDER/2,
+                                       panex[1]-BORDER-(panex[0]+panew[0]/2),
+                                       fontinfo->ascent+fontinfo->descent,
+                                       dfs);
+                
+                break;
+              case 'N': /* find next match */
+                if (redia)
+                  {
+                  while (movedown(map,1)) ;
+                  motion_sync(map,xover,pane,numlines);
+                  }
+                break;
+              case 'P': /* find pref match */
+                if (redia)
+                  {
+                  while (moveup(map,1)) ;
+                  motion_sync(map,xover,pane,numlines);
+                  }
+                break;
+              }
             }
           }
       }
     }
 
+  if (redia) destroy_redia(&redia);
   destroy_xover(&xover);
   destroy_map(&map);
 
-  for (i=0;i<2;i++) destroy_pane(&pane[i]);
+  for (int i=0;i<2;i++) destroy_pane(&pane[i]);
   
   destroy_main(&main);
   XFreeFont(rw->display,fontinfo);
@@ -233,7 +346,7 @@ void gotobot(windowstuff *mapw)
     srch = map->dif->dr0[map->cur[0]] & map->dif->dr1[map->cur[1]];
   }
 
-int moveup(windowstuff *mapw)
+int moveup(windowstuff *mapw,int resrch)
   {
   int nl1,nl0,c0,c1,dr;
   map_desc *map;
@@ -269,6 +382,15 @@ int moveup(windowstuff *mapw)
     map->cur[1]=c1;
     }
 
+  if (resrch)
+    {
+    srch= -2;
+    if (map->dif->file[0].matches[map->cur[0]] ||
+        map->dif->file[1].matches[map->cur[1]] )
+      return 0;
+    return 1;
+    }
+  
   dr = map->dif->dr0[map->cur[0]] & map->dif->dr1[map->cur[1]];
 
   if (map->cur[0]==0 && map->cur[1]==0)
@@ -287,7 +409,7 @@ int moveup(windowstuff *mapw)
   return(0);
   }
 
-int movedown(windowstuff *mapw)
+int movedown(windowstuff *mapw,int resrch)
   {
   int nl1,nl0,c0,c1,dr;
   map_desc *map;
@@ -323,6 +445,16 @@ int movedown(windowstuff *mapw)
     map->cur[1]=c1;
     }
 
+  
+  if (resrch)
+    {
+    srch= -2;
+    if (map->dif->file[0].matches[map->cur[0]] ||
+        map->dif->file[1].matches[map->cur[1]] )
+      return 0;
+    return 1;
+    }
+  
   dr = map->dif->dr0[map->cur[0]] & map->dif->dr1[map->cur[1]];
 
   if (map->cur[0]==map->dif->file[0].lines-1 &&
@@ -362,6 +494,12 @@ void draw_arrow(windowstuff *w,int x,int y,int dir)
   XFillPolygon(w->display,w->window,w->gc,
                points,3,Nonconvex,CoordModePrevious);
   points[1].x *= dir;
+  }
+
+void draw_marker(windowstuff *w,int x,int y,int dir)
+  {
+  XDrawLine(w->display,w->window,w->gc,
+            x,y,x+dir*4,y);
   }
 
 void draw_xover(int expose,xover_desc *xover)
@@ -416,14 +554,32 @@ void draw_xover(int expose,xover_desc *xover)
     }
 
   XSetFunction(xover->w->display,xover->w->gc,FunnyMode);
-  XSetForeground(xover->w->display,xover->w->gc,xover->w->foreground|xover->w->background);
+  XSetForeground(xover->w->display,xover->w->gc,
+                 xover->w->foreground|xover->w->background);
+  
+  for (int s=0;s<2;s++)
+    {
+    int x = s ? w-1 : 1;
+    int d = s ? -1 : 1;
+    
+    for (i=0;i<xover->dif->file[s].lines;i++)
+      if (xover->dif->file[s].matches[i])
+        {
+        int y = h*(i-xover->start[s])+h/2;
+        if (y>=0 && y<=wh)
+          draw_marker(xover->w,x,y,d);
+        }
+    }
+  
+
   draw_arrow(xover->w,1,(xover->cur[0]-xover->start[0])*h+h/2,1);
   draw_arrow(xover->w,w-1,(xover->cur[1]-xover->start[1])*h+h/2,-1);
   pencolor(xover->w,1);
   XSetFunction(xover->w->display,xover->w->gc,GXcopy);
   }
 
-windowstuff *create_xover(windowstuff *main,int x,int y,int w,int l,diffs *dfs,int fh)
+windowstuff *create_xover(windowstuff *main,int x,int y,int w,int l,
+                          diffs *dfs,int fh)
   {
   windowstuff *rv;
   
@@ -441,7 +597,7 @@ windowstuff *create_xover(windowstuff *main,int x,int y,int w,int l,diffs *dfs,i
   rv->local->desc.xover->cur[1]=0;
   rv->local->desc.xover->h=fh;
   
-  draw_map(0,rv->local->desc.map);
+  draw_xover(0,rv->local->desc.xover);
   return(rv);
   }
 
@@ -498,7 +654,7 @@ void gotomouse(windowstuff *w,int x,int y)
 void draw_map(int expose,map_desc *map)
   {
   XPoint points[9];
-  int i,m,h;
+  int s,i,m,h;
 
   m = max(map->dif->file[0].lines,map->dif->file[1].lines);
   h = map->w->hint.height;
@@ -533,6 +689,15 @@ void draw_map(int expose,map_desc *map)
       XDrawLines(map->w->display,map->w->window,map->w->gc,
                  points,9,CoordModeOrigin);
     
+      }
+    for (s=0;s<2;s++)
+      {
+      int x = s ? MAPWID-BORDER : BORDER;
+      int d = s ? 1 : -1;
+      
+      for (i=0;i<map->dif->file[s].lines;i++)
+        if (map->dif->file[s].matches[i])
+          draw_marker(map->w,x,h*i/m,d);
       }
     }
   else if (map->pcur[0]>=0)
@@ -586,21 +751,32 @@ void destroy_pane(windowstuff **rv)
   *rv = NULL;
   }
 
-void rendertabs(char *in,char *out)
+char *rendertabs(char *in,int inl,char *out,int ml,int *rl)
   {
-  int i;
+  int xc=0,tc=0;
+  int i=0;
   char *p,*q;
 
-  i=0;
-
-  for (p=in,q=out; *p ; p++)
+  // are there any tabs?
+  int l = min(inl,ml);
+  for (p=in; p-in<l ; p++)
+    if (*p=='\t') break;
+  if (*p != '\t')
+    {
+    if (rl) *rl=inl;
+    return in;
+    }
+  
+  for (p=in,q=out; p-in<inl && i<ml ; p++)
     {
     if (*p=='\t')
       {
+      tc++;
       do 
         {
         *q++ = ' ' ;
         i++;
+        xc++;
         }
       while (i%8);
       }
@@ -611,25 +787,26 @@ void rendertabs(char *in,char *out)
       }
     }
   *q=0;
+  if (rl) *rl=q-out;
+  return out;
   }
 
 void draw_pane(int expose,pane_desc *pd)
   {
-  int i,l,fl,height,b,j,ia,start,end,rm;
-  char **line,*theline;
-  char buffer[LINELEN];
-
-  height = (pd->fontinfo->ascent+pd->fontinfo->descent);
-  fl = pd->w->hint.height/height;
-  line = pd->dif->file[pd->side].line;
-  l=pd->dif->file[pd->side].lines;
-
+  int height = (pd->fontinfo->ascent+pd->fontinfo->descent);
+  int fl = pd->w->hint.height/height;
+  int width = (pd->fontinfo->min_bounds.width);
+  int fw = pd->w->hint.width/(width ? width : 1);
+  char **line = pd->dif->file[pd->side].line;
+  int32_t *matches = pd->dif->file[pd->side].matches;
+  int l=pd->dif->file[pd->side].lines;
   if (expose) pd->pstartline= -1;
 
-  rm = pd->startline-pd->pstartline;
+  int rm = pd->startline-pd->pstartline;
   
   if (rm == 0) return;
 
+  int start,end;
   if (fl-rm>0 && rm>0 && pd->pstartline>=0)
     {
     XCopyArea(pd->w->display,pd->w->window,pd->w->window,pd->w->gc,
@@ -664,15 +841,15 @@ void draw_pane(int expose,pane_desc *pd)
     }
   
   pd->pstartline=pd->startline;
-    
-  for (i=start;i<end;i++)
+  for (int i=start;i<end;i++)
     {
-    if (i+pd->startline<l && i+pd->startline>=0 ) theline=line[i+pd->startline];
-    else theline="~";
+    int inpane = i+pd->startline<l && i+pd->startline>=0 ;
+    char *theline = inpane ? line[i+pd->startline] : "~";
+    char *eol = inpane ? line[i+pd->startline+1]-1 : theline+1;
 
-    b=0;
-    ia=0;
-    for (j=0;j<pd->dif->diffs;j++)
+    int b=0;
+    int ia=0;
+    for (int j=0;j<pd->dif->diffs;j++)
       {
       b |= pd->dif->diff[j].fs[pd->side]<=i+pd->startline
            && pd->dif->diff[j].fe[pd->side]>i+pd->startline ;
@@ -680,11 +857,49 @@ void draw_pane(int expose,pane_desc *pd)
             && pd->dif->diff[j].fe[pd->side]==i+pd->startline ;
       }
 
-    if (theline[0])
+    int ll = eol-theline;
+    if (eol>theline)
       {
-      rendertabs(theline,buffer);
-      xistring(pd->w,INDENT,i*height+pd->fontinfo->ascent,
-               buffer,strlen(buffer));
+      char buffer[fw+1];
+      int sl;
+      char *s = rendertabs(theline,eol-theline,buffer,fw,&sl);
+      xistring(pd->w,INDENT,i*height+pd->fontinfo->ascent, s ,sl);
+      
+      int32_t match = inpane ? matches[i+pd->startline] : 0;
+      int nm = get_num_matches(match);
+      if (nm)
+        {
+        XSetFunction(pd->w->display,pd->w->gc,FunnyMode);
+        XSetForeground(pd->w->display,pd->w->gc,
+                       pd->w->foreground|pd->w->background);
+        
+        for (int m=0;m<nm;m++)
+          {
+          int32_t msted = get_match(match,pd->matches,m);
+          int beg = msted>>16;
+          int end = msted&0xffff;
+
+          int direction_return,font_ascent_return,font_descent_return;
+          XCharStruct pre_return;
+          XTextExtents(pd->fontinfo, s, beg,
+                       &direction_return,&font_ascent_return,
+                       &font_descent_return, &pre_return);
+          int xstart = pre_return.width;
+          
+          XCharStruct post_return;
+          XTextExtents(pd->fontinfo, s, end,
+                       &direction_return,&font_ascent_return,
+                       &font_descent_return, &post_return);
+          int xwidth = post_return.width - xstart;
+
+          XFillRectangle(pd->w->display,pd->w->window,pd->w->gc,
+                         INDENT-1+xstart,i*height,
+                         xwidth+1,height);
+          }
+        
+        pencolor(pd->w,1);
+        XSetFunction(pd->w->display,pd->w->gc,GXcopy);
+        }
       }
     
     if (b)
@@ -799,6 +1014,9 @@ void draw_object(int expose,windowstuff *eventwind)
     case XOVER :
       draw_xover(expose,eventwind->local->desc.xover);
       break;
+    case REDIA :
+      draw_redia(expose,eventwind->local->desc.redia);
+      break;
     }
   }
 
@@ -827,136 +1045,112 @@ void printdiffs(diffs *dfs)
   }
 
 
-diffs *rundiff(char *options,char *file0,char *file1)
+char *mapfile(char *name,size_t *lenp,size_t *len,char *other)
   {
-  static char *diff="diff %s %s %s";
-  char buf[LINELEN];
-  FILE *prog;
-  int sfile[2];
-  diffs *rv;
-  int i,lines,width,w,di,j,n1,n0,t;
-  char *endp,*p;
-  
-  /* open both files */
-  sfile[0] = open(file0,O_RDONLY);
-  if (sfile[0]<=0)
-    {
-    fprintf(stderr,"bxdiff: cant open %s\n",file0);
-    exit(1);
-    }
+  struct stat s;
+  if (stat(name,&s)) return 0;
 
-  /* file1 could be a dir or a file */
-  struct stat stat1buf;
-  if (stat(file1,&stat1buf))
+  size_t len_name=0;
+  if (S_ISDIR(s.st_mode))
     {
-    close(sfile[0]);
-    fprintf(stderr,"bxdiff: stat open %s\n",file1);
-    exit(1);
-    }
+    if (! other) return 0;
 
-  /* find last slash */
-  char *slash=file0;
-  p=file0;
-  while (*p)
-    {
-    if (*p == '/') slash=p;
-    p++;
+    char *slash=strrchr(other,'/');
+    if (slash) other = slash+1;
+    len_name=strlen(name);
+    if (name[len_name-1] != '/') name[len_name++] = '/';
+    strcpy(name+len_name,other);
+    len_name += strlen(other);
+    if (stat(name,&s)) return 0;
     }
+  else
+    len_name=strlen(name);
+  
+  int fd = open(name,O_RDONLY);
+  if (fd<=0) return 0;
 
-  int f1len = strlen(file1) + (p-slash) + 4;
-  char file1namebuf[f1len];
+  char *rv = mmap(NULL, s.st_size+2, PROT_READ, MAP_PRIVATE, fd, 0);
+  close(fd);
   
-  if (S_ISDIR(stat1buf.st_mode))
-    {
-    strcpy(file1namebuf,file1);
-    strcat(file1namebuf,slash);
-    file1 = file1namebuf;
-    }
-  
-  sfile[1] = open(file1,O_RDONLY);
-  if (sfile[1]<=0)
-    {
-    close(sfile[0]);
-    fprintf(stderr,"bxdiff: cant open %s\n",file1);
-    exit(1);
-    }
+  if (len) *len = s.st_size;
+  if (lenp) *lenp = len_name;
+  return rv;
+  }
 
-  rv =newitem(diffs,1);
+diffs *rundiff(char *options,char *file0n,char *file1dn)
+  {
+  diffs *rv =newitem(diffs,1);
   
-  rv->file[0].name=file0;
-  rv->file[1].name=file1;
-  
-  for (i=0;i<2;i++)
-    { /* loop over both files */
-    /* read in the file */
-    rv->file[i].len = lseek(sfile[i],0,SEEK_END);
-    lseek(sfile[i],0,SEEK_SET);
-    rv->file[i].data = newitem(char,rv->file[i].len+1);
-    read(sfile[i],rv->file[i].data,rv->file[i].len);
-    rv->file[i].data[ rv->file[i].len ] = 0;
-    close(sfile[i]);
+  rv->file[0].data = mapfile(file0n,&rv->file[0].len_name,
+                             &rv->file[0].len,NULL);
+  rv->file[0].name = strdup(file0n);
 
-    /* extract neato info from the file */
-    lines = 0;
-    width = 0;
-    w=0;
+  char file1n[strlen(file1dn)+strlen(file0n)+1];
+  strcpy(file1n,file1dn);
+  rv->file[1].data = mapfile(file1n,&rv->file[1].len_name,
+                             &rv->file[1].len,NULL);
+  rv->file[1].name = strdup(file1n);
+
+  for (int i=0;i<2;i++)
+    { /* loop over both files extract neato info from the file */
+    int lines = 0;
+    int width = 0;
+    char *nl;
     
-    endp = rv->file[i].data + rv->file[i].len;
-    
-    for (p=rv->file[i].data ; p<endp ; p++)
+    char *endp = rv->file[i].data + rv->file[i].len;
+    char *p=rv->file[i].data;
+    while ((nl=strchr(p,'\n')) && nl<endp)
       {
-      if (w==0) lines++;
-      if (*p=='\n')
-        {
-        if (w>width) width=w;
-        w=0;
-        }
-      else
-        {
-        w++;
-        }
+      lines++;
+      int w = nl - p;
+      if (w>width) width=w;
+      p = nl+1;
       }
-
+    
     rv->file[i].width = width;
     rv->file[i].lines = lines;
 
     /* make line array */
-    w=0;
     lines=0;
-    rv->file[i].line = newitem(char *,rv->file[i].lines);
-    
-    for (p=rv->file[i].data ; p<endp ; p++)
+    rv->file[i].line = newitem(char *,rv->file[i].lines+1);
+    rv->file[i].matches = newitem(int32_t,rv->file[i].lines);
+    p=rv->file[i].data;
+    while ((nl=strchr(p,'\n')) && nl<endp)
       {
-      if (w==0) rv->file[i].line[lines++]=p;
-      if (*p=='\n')
-        {
-        *p=0;
-        w=0;
-        }
-      else
-        {
-        w++;
-        }
+      rv->file[i].line[lines++] = p;
+      p = nl+1;
       }
+    rv->file[i].line[lines] = endp;
     }
 
+  size_t len_options = options ? strlen(options) : 0;
+  char diff[4+3+1+len_options+rv->file[0].len_name+rv->file[1].len_name];
+  char *p = cpystring(diff,"diff ");
+  if (options) p=cpystring(cpystring(p,options)," ");
+  cpystring(cpystring(cpystring(p,rv->file[0].name)," "),rv->file[1].name);
+
+  FILE *prog= popen(diff,"r");
+  
   /* read in the diff */
-  rv->diff = newitem(diffrec,min(rv->file[0].lines,rv->file[1].lines)+3);
+  int recs = 1024;
+  rv->diff = newitem(diffrec,recs);
+  int di=0;
+  int linelen = max(rv->file[0].width,rv->file[1].width);
+  char buf[linelen+5];
   
-  sprintf(buf,diff,options,file0,file1);
-  prog = popen(buf,"r");
-  di=0;
-  
-  for ( ; fgets(buf,LINELEN,prog) ; )
+  while ( fgets(buf,linelen,prog) )
     if (buf[0]>='0' && buf[0]<='9')
       { /* must be a diff line */
-      if (5==sscanf(buf,"%d,%d%1[acd]%d,%d",&rv->diff[di].fs[0],&rv->diff[di].fe[0],
-                    rv->diff[di].code,&rv->diff[di].fs[1],&rv->diff[di].fe[1]))
+      if (5==sscanf(buf,"%d,%d%1[acd]%d,%d",
+                    &rv->diff[di].fs[0],&rv->diff[di].fe[0],
+                    rv->diff[di].code,
+                    &rv->diff[di].fs[1],&rv->diff[di].fe[1]))
         {
         rv->diff[di].fe[0]++;
         rv->diff[di].fe[1]++;
         }
-      else if (4==sscanf(buf,"%d,%d%1[acd]%d",&rv->diff[di].fs[0],&rv->diff[di].fe[0],
+      else if (4==sscanf(buf,"%d,%d%1[acd]%d",
+                         &rv->diff[di].fs[0],&rv->diff[di].fe[0],
                          rv->diff[di].code,&rv->diff[di].fs[1]))
         {
         rv->diff[di].fe[0]++;
@@ -966,7 +1160,8 @@ diffs *rundiff(char *options,char *file0,char *file1)
           rv->diff[di].fe[1] = ++(rv->diff[di].fs[1]);
         }
       else if (4==sscanf(buf,"%d%1[acd]%d,%d",&rv->diff[di].fs[0],
-                         rv->diff[di].code,&rv->diff[di].fs[1],&rv->diff[di].fe[1]))
+                         rv->diff[di].code,
+                         &rv->diff[di].fs[1],&rv->diff[di].fe[1]))
         {
         rv->diff[di].fe[1]++;
         if (rv->diff[di].code[0]=='c')
@@ -1003,40 +1198,49 @@ diffs *rundiff(char *options,char *file0,char *file1)
       rv->diff[di].fe[0]--;
       rv->diff[di].fe[1]--;
       di++;
+      if (di>=recs)
+        {
+        recs *= 2;
+        rv->diff = realloc(rv->diff,recs*sizeof(diffrec));
+        }
       }
+  pclose(prog);
+  
   rv->diffs = di;
 
   rv->l01 = newitem(int,rv->file[0].lines+1);
   rv->l10 = newitem(int,rv->file[1].lines+1);
 
-  for (i=1;i<rv->file[0].lines;i++) rv->l01[i]= -1;
-  for (i=1;i<rv->file[1].lines;i++) rv->l10[i]= -1;
+  for (int i=1;i<rv->file[0].lines;i++) rv->l01[i]= -1;
+  for (int i=1;i<rv->file[1].lines;i++) rv->l10[i]= -1;
 
   rv->dr0 = newitem(int,rv->file[0].lines+1);
   rv->dr1 = newitem(int,rv->file[1].lines+1);
 
-  for (i=1;i<rv->file[0].lines;i++) rv->dr0[i]= -1;
-  for (i=1;i<rv->file[1].lines;i++) rv->dr1[i]= -1;
+  for (int i=1;i<rv->file[0].lines;i++) rv->dr0[i]= -1;
+  for (int i=1;i<rv->file[1].lines;i++) rv->dr1[i]= -1;
   
 
-  for (i=0;i<di;i++)
+  for (int i=0;i<di;i++)
     {
-    n1 = rv->diff[i].fe[1]-rv->diff[i].fs[1];
-    n0 = rv->diff[i].fe[0]-rv->diff[i].fs[0];
+    int n1 = rv->diff[i].fe[1]-rv->diff[i].fs[1];
+    int n0 = rv->diff[i].fe[0]-rv->diff[i].fs[0];
     if (n0>n1 && n0>0)
       {
-      for (j=rv->diff[i].fs[0];j<rv->diff[i].fe[0];j++)
+      for (int j=rv->diff[i].fs[0];j<rv->diff[i].fe[0];j++)
         {
-        rv->l01[j] = t = (n1*(j-rv->diff[i].fs[0]))/n0 + rv->diff[i].fs[1];
+        int t = t = (n1*(j-rv->diff[i].fs[0]))/n0 + rv->diff[i].fs[1];
+        rv->l01[j] = t;
         if (rv->l10[t]<0) rv->l10[t] = j;
         rv->dr0[j]=i;
         }
       }
     else if (n1>0)
       {
-      for (j=rv->diff[i].fs[1];j<rv->diff[i].fe[1];j++)
+      for (int j=rv->diff[i].fs[1];j<rv->diff[i].fe[1];j++)
         {
-        rv->l10[j] = t = (n0*(j-rv->diff[i].fs[1]))/n1 + rv->diff[i].fs[0];
+        int t = (n0*(j-rv->diff[i].fs[1]))/n1 + rv->diff[i].fs[0];
+        rv->l10[j] = t;
         if (rv->l01[t]<0) rv->l01[t] = j;
         rv->dr1[j]=i;
         }
@@ -1046,18 +1250,17 @@ diffs *rundiff(char *options,char *file0,char *file1)
     rv->l10[rv->diff[i].fs[1]] = rv->diff[i].fs[0];
     rv->l10[rv->diff[i].fe[1]] = rv->diff[i].fe[0];
     
-    for (j=rv->diff[i].fs[1];j<=rv->diff[i].fe[1];j++)
+    for (int j=rv->diff[i].fs[1];j<=rv->diff[i].fe[1];j++)
       rv->l10[j] = n1>0 ? (n0*(j-rv->diff[i].fs[1]))/n1 + rv->diff[i].fs[0]
                    : rv->diff[i].fe[0];
     }
 
-  for (i=1;i<rv->file[0].lines;i++)
+  for (int i=1;i<rv->file[0].lines;i++)
     if (rv->l01[i]<0) rv->l01[i] = rv->l01[i-1] +1;
   
-  for (i=1;i<rv->file[1].lines;i++)
+  for (int i=1;i<rv->file[1].lines;i++)
     if (rv->l10[i]<0) rv->l10[i] = rv->l10[i-1] +1;
 
-  pclose(prog);
   return(rv);
   }
   

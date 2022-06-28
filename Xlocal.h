@@ -8,13 +8,18 @@
 
 #define BORDER 5
 #define INDENT 3
+#define PCRE2_CODE_UNIT_WIDTH 8
+
+#include <pcre2.h>
 
 typedef struct
   {
   char *name;
+  size_t len_name;
+  size_t len;
   int lines;
-  int len;
   int width;
+  int32_t *matches;  // 0=none >0=one(start<<16|end) <0=-(num<<16|index)
   char *data;
   char **line;
   } fileinfo;
@@ -36,7 +41,7 @@ typedef struct
 
 typedef enum 
   {
-  ROOT, MAIN, BUTTON, PANE, MAP, XOVER
+  ROOT, MAIN, BUTTON, PANE, MAP, XOVER, REDIA
   } objects ;
 
 typedef enum
@@ -65,6 +70,7 @@ typedef struct
   XFontStruct *fontinfo;
   int side;
   diffs *dif;
+  int32_t *matches;
   int startline;
   int pstartline;
   } pane_desc;
@@ -77,6 +83,19 @@ typedef struct
   int cur[2];
   int h;
   } xover_desc;
+
+typedef struct
+  {
+  windowstuff *w;
+  XFontStruct *fontinfo;
+  size_t len_re,size_re;
+  char *re;
+  diffs *dif;
+  int32_t *matches;
+  size_t size_matches;
+  int start[2];
+  int cur[2];
+  } redia_desc;
 
 typedef struct
   {
@@ -97,5 +116,6 @@ typedef struct local_struct
     pane_desc *pane;
     xover_desc *xover;
     map_desc *map;
+    redia_desc *redia;
     } desc;
   } local_type;
