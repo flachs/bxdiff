@@ -9,7 +9,7 @@ else
   COMMON = $(HOME)/proj/src/lib
   INCLUDE = -I. -I$(COMMON)/include
   COMODIR = $(COMMON)/$(MACHTYPE)
-  LIBO = 0
+  LIBO = 
 endif
 
 
